@@ -151,6 +151,41 @@ async function createDriftPrediction(prisma2, input) {
   });
 }
 
+// apps/api/src/providers/telegram.ts
+var maxDetails = 10;
+function formatDetails(details = {}) {
+  return Object.entries(details).filter(([, value]) => value !== void 0 && value !== null && value !== "").slice(0, maxDetails).map(([key, value]) => `\u2022 ${key}: ${String(value)}`).join("\n");
+}
+async function notifyDbUpdate(title, details) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  const timestamp = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Aqtau",
+    dateStyle: "short",
+    timeStyle: "medium"
+  }).format(/* @__PURE__ */ new Date());
+  const detailText = formatDetails(details);
+  const text = [`Boltzzmann DB update`, title, `\u0412\u0440\u0435\u043C\u044F: ${timestamp}`, detailText].filter(Boolean).join("\n\n");
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        disable_web_page_preview: true
+      })
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error("Telegram notification failed", response.status, body.slice(0, 300));
+    }
+  } catch (error) {
+    console.error("Telegram notification failed", error);
+  }
+}
+
 // apps/api/src/index.ts
 var app = express();
 var httpServer = createServer(app);
@@ -252,6 +287,11 @@ async function dispatchIncident(incidentId) {
   io.emit("incident.dispatched", assignment);
   io.emit("rescue.assigned", assignment);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041D\u0430\u0437\u043D\u0430\u0447\u0435\u043D \u0441\u043F\u0430\u0441\u0430\u0442\u0435\u043B\u044C", {
+    incident: incident.publicId,
+    rescuer: rescuer.callSign,
+    status: AssignmentStatus.SENT
+  });
   return assignment;
 }
 async function applyRescueAction(assignmentId, action) {
@@ -289,6 +329,12 @@ async function applyRescueAction(assignmentId, action) {
   io.emit(realtimeEvent, updated);
   if (action === "RESCUED") io.emit("incident.resolved", updated.incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D rescue workflow", {
+    incident: updated.incident.publicId,
+    rescuer: updated.rescuer.callSign,
+    action,
+    status
+  });
   return updated;
 }
 app.get("/api/health", asyncRoute(async (_req, res) => {
@@ -332,6 +378,7 @@ app.post("/api/admin/users", asyncRoute(async (req, res) => {
     }
   });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C", { name: user.name, email: user.email, role: user.role });
   res.json(publicUser(user));
 }));
 app.put("/api/admin/users/:id", asyncRoute(async (req, res) => {
@@ -349,6 +396,7 @@ app.put("/api/admin/users/:id", asyncRoute(async (req, res) => {
   if (input.password) data.passwordHash = hashPassword(input.password);
   const user = await prisma.user.update({ where: { id: routeParam(req.params.id) }, data });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C", { name: user.name, email: user.email, role: user.role });
   res.json(publicUser(user));
 }));
 app.delete("/api/admin/users/:id", asyncRoute(async (req, res) => {
@@ -363,6 +411,7 @@ app.delete("/api/admin/users/:id", asyncRoute(async (req, res) => {
   }
   await prisma.user.delete({ where: { id } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0423\u0434\u0430\u043B\u0451\u043D \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044C", { name: user.name, email: user.email, role: user.role });
   res.json({ ok: true });
 }));
 app.post("/api/admin/drones", asyncRoute(async (req, res) => {
@@ -380,6 +429,7 @@ app.post("/api/admin/drones", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const drone = await prisma.drone.create({ data: { ...input, gpsStatus: "READY", cameraStatus: "ONLINE" } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0434\u0440\u043E\u043D", { name: drone.name, serial: drone.serialNumber, status: drone.status });
   res.json(drone);
 }));
 app.put("/api/admin/drones/:id", asyncRoute(async (req, res) => {
@@ -397,11 +447,13 @@ app.put("/api/admin/drones/:id", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const drone = await prisma.drone.update({ where: { id: routeParam(req.params.id) }, data: { ...input, lastSeenAt: /* @__PURE__ */ new Date() } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u0434\u0440\u043E\u043D", { name: drone.name, serial: drone.serialNumber, status: drone.status, battery: `${drone.battery}%` });
   res.json(drone);
 }));
 app.delete("/api/admin/drones/:id", asyncRoute(async (req, res) => {
-  await prisma.drone.delete({ where: { id: routeParam(req.params.id) } });
+  const drone = await prisma.drone.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0423\u0434\u0430\u043B\u0451\u043D \u0434\u0440\u043E\u043D", { name: drone.name, serial: drone.serialNumber });
   res.json({ ok: true });
 }));
 app.post("/api/admin/rescuers", asyncRoute(async (req, res) => {
@@ -414,6 +466,7 @@ app.post("/api/admin/rescuers", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const rescuer = await prisma.rescuer.create({ data: input });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D \u0441\u043F\u0430\u0441\u0430\u0442\u0435\u043B\u044C", { name: rescuer.name, callSign: rescuer.callSign, status: rescuer.status });
   res.json(rescuer);
 }));
 app.put("/api/admin/rescuers/:id", asyncRoute(async (req, res) => {
@@ -426,11 +479,13 @@ app.put("/api/admin/rescuers/:id", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const rescuer = await prisma.rescuer.update({ where: { id: routeParam(req.params.id) }, data: input });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u0441\u043F\u0430\u0441\u0430\u0442\u0435\u043B\u044C", { name: rescuer.name, callSign: rescuer.callSign, status: rescuer.status });
   res.json(rescuer);
 }));
 app.delete("/api/admin/rescuers/:id", asyncRoute(async (req, res) => {
-  await prisma.rescuer.delete({ where: { id: routeParam(req.params.id) } });
+  const rescuer = await prisma.rescuer.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0423\u0434\u0430\u043B\u0451\u043D \u0441\u043F\u0430\u0441\u0430\u0442\u0435\u043B\u044C", { name: rescuer.name, callSign: rescuer.callSign });
   res.json({ ok: true });
 }));
 app.post("/api/admin/recordings", asyncRoute(async (req, res) => {
@@ -456,11 +511,13 @@ app.post("/api/admin/recordings", asyncRoute(async (req, res) => {
     include: { drone: true, events: true, changes: true }
   });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0414\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0430 \u0437\u0430\u043F\u0438\u0441\u044C Playback/Live", { recording: recording.publicId, mission: recording.mission, drone: recording.drone.name });
   res.json(recording);
 }));
 app.delete("/api/admin/recordings/:id", asyncRoute(async (req, res) => {
-  await prisma.recording.delete({ where: { id: routeParam(req.params.id) } });
+  const recording = await prisma.recording.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0423\u0434\u0430\u043B\u0435\u043D\u0430 \u0437\u0430\u043F\u0438\u0441\u044C Playback/Live", { recording: recording.publicId, mission: recording.mission });
   res.json({ ok: true });
 }));
 app.get("/api/connections/active", asyncRoute(async (_req, res) => {
@@ -528,6 +585,7 @@ app.post("/api/connections/connect", asyncRoute(async (req, res) => {
   });
   io.emit("drone.connected", connection);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0451\u043D \u0434\u0440\u043E\u043D", { drone: connection.drone.name, model: connection.selectedModel, method: connection.method });
   res.json(connection);
 }));
 app.post("/api/connections/disconnect", asyncRoute(async (_req, res) => {
@@ -537,6 +595,7 @@ app.post("/api/connections/disconnect", asyncRoute(async (_req, res) => {
   });
   io.emit("drone.disconnected", result);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u0430 \u0441\u0435\u0441\u0441\u0438\u044F \u0434\u0440\u043E\u043D\u0430", { disconnected: result.count });
   res.json({ ok: true, disconnected: result.count });
 }));
 app.get("/api/overview", asyncRoute(async (_req, res) => {
@@ -593,6 +652,13 @@ app.post("/api/incidents", asyncRoute(async (req, res) => {
   });
   io.emit("incident:created", incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D \u0438\u043D\u0446\u0438\u0434\u0435\u043D\u0442", {
+    incident: incident.publicId,
+    type: incident.type,
+    status: incident.status,
+    confidence: `${incident.confidence}%`,
+    coordinates: `${incident.latitude.toFixed(5)}, ${incident.longitude.toFixed(5)}`
+  });
   res.json(incident);
 }));
 app.post("/api/incidents/:id/status", asyncRoute(async (req, res) => {
@@ -608,6 +674,7 @@ app.post("/api/incidents/:id/status", asyncRoute(async (req, res) => {
   });
   io.emit("incident:updated", incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u0441\u0442\u0430\u0442\u0443\u0441 \u0438\u043D\u0446\u0438\u0434\u0435\u043D\u0442\u0430", { incident: incident.publicId, status: incident.status, message: input.message });
   res.json(incident);
 }));
 app.post("/api/drones/connect", asyncRoute(async (req, res) => {
@@ -653,6 +720,7 @@ app.post("/api/drones/connect", asyncRoute(async (req, res) => {
     }
   });
   io.emit("drone:connected", drone);
+  await notifyDbUpdate("\u0424\u043B\u043E\u0442 \u043E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u0447\u0435\u0440\u0435\u0437 serial connect", { drone: drone.name, serial: drone.serialNumber, status: drone.status });
   res.json(drone);
 }));
 app.get("/api/sea", asyncRoute(async (_req, res) => {
@@ -670,6 +738,11 @@ app.post("/api/drift", asyncRoute(async (req, res) => {
   const snapshot = await getCurrentEnvironmentalSnapshot(prisma);
   const prediction = await createDriftPrediction(prisma, { ...input, snapshot });
   io.emit("drift.created", prediction);
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D drift prediction", {
+    incidentId: prediction.incidentId,
+    searchMissionId: prediction.searchMissionId,
+    elapsedMinutes: prediction.elapsedMinutes
+  });
   res.json(prediction);
 }));
 app.get("/api/playback", asyncRoute(async (_req, res) => {
@@ -689,6 +762,7 @@ app.get("/api/evidence", asyncRoute(async (_req, res) => {
 app.post("/api/evidence/:incidentId", asyncRoute(async (req, res) => {
   const evidence = await createEvidencePackage(prisma, routeParam(req.params.incidentId));
   io.emit("evidence.created", evidence);
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D evidence package", { evidence: evidence.publicId, incidentId: evidence.incidentId, status: evidence.status });
   res.json(evidence);
 }));
 app.post("/api/dispatcher/analyze-text", asyncRoute(async (req, res) => {
@@ -736,6 +810,8 @@ app.post("/api/patrols", asyncRoute(async (req, res) => {
     }
   });
   io.emit("patrol:created", patrol);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D \u043F\u0430\u0442\u0440\u0443\u043B\u044C", { patrol: patrol.publicId, area: patrol.area, missionType: patrol.missionType, status: patrol.status });
   res.json(patrol);
 }));
 app.get("/api/analytics", asyncRoute(async (_req, res) => {
@@ -806,11 +882,15 @@ app.post("/api/search-missions", asyncRoute(async (req, res) => {
     ]
   });
   io.emit("search:created", mission);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D\u0430 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u0430\u044F \u043C\u0438\u0441\u0441\u0438\u044F", { mission: mission.publicId, radius: `${mission.radius} \u043C`, description: mission.description });
   res.json(mission);
 }));
 app.post("/api/search-missions/:id/candidates", asyncRoute(async (req, res) => {
   const input = z.object({ status: z.nativeEnum(CandidateStatus) }).parse(req.body);
   const candidate = await prisma.searchCandidate.update({ where: { id: routeParam(req.params.id) }, data: { status: input.status } });
+  io.emit("dashboard:update");
+  await notifyDbUpdate("\u041E\u0431\u043D\u043E\u0432\u043B\u0451\u043D \u043A\u0430\u043D\u0434\u0438\u0434\u0430\u0442 \u043F\u043E\u0438\u0441\u043A\u0430", { candidate: candidate.id, status: candidate.status, confidence: `${candidate.confidence}%` });
   res.json(candidate);
 }));
 app.get("/api/offline/events", asyncRoute(async (_req, res) => {
@@ -830,6 +910,7 @@ app.post("/api/offline/events", asyncRoute(async (req, res) => {
     create: { idempotencyKey: input.idempotencyKey, type: input.type, payload }
   });
   io.emit("offline.started", event);
+  await notifyDbUpdate("\u0421\u043E\u0437\u0434\u0430\u043D offline sync event", { event: event.id, type: event.type, status: event.status });
   res.json(event);
 }));
 app.post("/api/offline/sync", asyncRoute(async (_req, res) => {
@@ -837,6 +918,8 @@ app.post("/api/offline/sync", asyncRoute(async (_req, res) => {
   io.emit("offline.syncing");
   const result = await prisma.offlineSyncEvent.updateMany({ where: { status: "SYNCING" }, data: { status: "SYNCED", syncedAt: /* @__PURE__ */ new Date() } });
   io.emit("offline.synced", result);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("\u0421\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D\u044B offline events", { synced: result.count });
   res.json({ ok: true, synced: result.count });
 }));
 app.get("/api/rescue/current", asyncRoute(async (_req, res) => {

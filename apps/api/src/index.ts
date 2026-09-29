@@ -11,6 +11,7 @@ import { prisma } from "./lib/prisma";
 import { createEvidencePackage } from "./providers/dispatcher";
 import { buildSeaForecast, getCurrentEnvironmentalSnapshot } from "./providers/environment";
 import { createDriftPrediction } from "./providers/drift";
+import { notifyDbUpdate } from "./providers/telegram";
 
 const app = express();
 const httpServer = createServer(app);
@@ -126,6 +127,11 @@ async function dispatchIncident(incidentId: string) {
   io.emit("incident.dispatched", assignment);
   io.emit("rescue.assigned", assignment);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Назначен спасатель", {
+    incident: incident.publicId,
+    rescuer: rescuer.callSign,
+    status: AssignmentStatus.SENT
+  });
   return assignment;
 }
 
@@ -164,6 +170,12 @@ async function applyRescueAction(assignmentId: string, action: RescueAction) {
   io.emit(realtimeEvent, updated);
   if (action === "RESCUED") io.emit("incident.resolved", updated.incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён rescue workflow", {
+    incident: updated.incident.publicId,
+    rescuer: updated.rescuer.callSign,
+    action,
+    status
+  });
   return updated;
 }
 
@@ -211,6 +223,7 @@ app.post("/api/admin/users", asyncRoute(async (req, res) => {
     }
   });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Создан пользователь", { name: user.name, email: user.email, role: user.role });
   res.json(publicUser(user));
 }));
 
@@ -229,6 +242,7 @@ app.put("/api/admin/users/:id", asyncRoute(async (req, res) => {
   if (input.password) data.passwordHash = hashPassword(input.password);
   const user = await prisma.user.update({ where: { id: routeParam(req.params.id) }, data });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён пользователь", { name: user.name, email: user.email, role: user.role });
   res.json(publicUser(user));
 }));
 
@@ -244,6 +258,7 @@ app.delete("/api/admin/users/:id", asyncRoute(async (req, res) => {
   }
   await prisma.user.delete({ where: { id } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Удалён пользователь", { name: user.name, email: user.email, role: user.role });
   res.json({ ok: true });
 }));
 
@@ -262,6 +277,7 @@ app.post("/api/admin/drones", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const drone = await prisma.drone.create({ data: { ...input, gpsStatus: "READY", cameraStatus: "ONLINE" } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Добавлен дрон", { name: drone.name, serial: drone.serialNumber, status: drone.status });
   res.json(drone);
 }));
 
@@ -280,12 +296,14 @@ app.put("/api/admin/drones/:id", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const drone = await prisma.drone.update({ where: { id: routeParam(req.params.id) }, data: { ...input, lastSeenAt: new Date() } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён дрон", { name: drone.name, serial: drone.serialNumber, status: drone.status, battery: `${drone.battery}%` });
   res.json(drone);
 }));
 
 app.delete("/api/admin/drones/:id", asyncRoute(async (req, res) => {
-  await prisma.drone.delete({ where: { id: routeParam(req.params.id) } });
+  const drone = await prisma.drone.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Удалён дрон", { name: drone.name, serial: drone.serialNumber });
   res.json({ ok: true });
 }));
 
@@ -299,6 +317,7 @@ app.post("/api/admin/rescuers", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const rescuer = await prisma.rescuer.create({ data: input });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Добавлен спасатель", { name: rescuer.name, callSign: rescuer.callSign, status: rescuer.status });
   res.json(rescuer);
 }));
 
@@ -312,12 +331,14 @@ app.put("/api/admin/rescuers/:id", asyncRoute(async (req, res) => {
   }).parse(req.body);
   const rescuer = await prisma.rescuer.update({ where: { id: routeParam(req.params.id) }, data: input });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён спасатель", { name: rescuer.name, callSign: rescuer.callSign, status: rescuer.status });
   res.json(rescuer);
 }));
 
 app.delete("/api/admin/rescuers/:id", asyncRoute(async (req, res) => {
-  await prisma.rescuer.delete({ where: { id: routeParam(req.params.id) } });
+  const rescuer = await prisma.rescuer.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Удалён спасатель", { name: rescuer.name, callSign: rescuer.callSign });
   res.json({ ok: true });
 }));
 
@@ -344,12 +365,14 @@ app.post("/api/admin/recordings", asyncRoute(async (req, res) => {
     include: { drone: true, events: true, changes: true }
   });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Добавлена запись Playback/Live", { recording: recording.publicId, mission: recording.mission, drone: recording.drone.name });
   res.json(recording);
 }));
 
 app.delete("/api/admin/recordings/:id", asyncRoute(async (req, res) => {
-  await prisma.recording.delete({ where: { id: routeParam(req.params.id) } });
+  const recording = await prisma.recording.delete({ where: { id: routeParam(req.params.id) } });
   io.emit("dashboard:update");
+  await notifyDbUpdate("Удалена запись Playback/Live", { recording: recording.publicId, mission: recording.mission });
   res.json({ ok: true });
 }));
 
@@ -420,6 +443,7 @@ app.post("/api/connections/connect", asyncRoute(async (req, res) => {
   });
   io.emit("drone.connected", connection);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Подключён дрон", { drone: connection.drone.name, model: connection.selectedModel, method: connection.method });
   res.json(connection);
 }));
 
@@ -430,6 +454,7 @@ app.post("/api/connections/disconnect", asyncRoute(async (_req, res) => {
   });
   io.emit("drone.disconnected", result);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Отключена сессия дрона", { disconnected: result.count });
   res.json({ ok: true, disconnected: result.count });
 }));
 
@@ -491,6 +516,13 @@ app.post("/api/incidents", asyncRoute(async (req, res) => {
   });
   io.emit("incident:created", incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Создан инцидент", {
+    incident: incident.publicId,
+    type: incident.type,
+    status: incident.status,
+    confidence: `${incident.confidence}%`,
+    coordinates: `${incident.latitude.toFixed(5)}, ${incident.longitude.toFixed(5)}`
+  });
   res.json(incident);
 }));
 
@@ -507,6 +539,7 @@ app.post("/api/incidents/:id/status", asyncRoute(async (req, res) => {
   });
   io.emit("incident:updated", incident);
   io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён статус инцидента", { incident: incident.publicId, status: incident.status, message: input.message });
   res.json(incident);
 }));
 
@@ -555,6 +588,7 @@ app.post("/api/drones/connect", asyncRoute(async (req, res) => {
     }
   });
   io.emit("drone:connected", drone);
+  await notifyDbUpdate("Флот обновлён через serial connect", { drone: drone.name, serial: drone.serialNumber, status: drone.status });
   res.json(drone);
 }));
 
@@ -574,6 +608,11 @@ app.post("/api/drift", asyncRoute(async (req, res) => {
   const snapshot = await getCurrentEnvironmentalSnapshot(prisma);
   const prediction = await createDriftPrediction(prisma, { ...input, snapshot });
   io.emit("drift.created", prediction);
+  await notifyDbUpdate("Создан drift prediction", {
+    incidentId: prediction.incidentId,
+    searchMissionId: prediction.searchMissionId,
+    elapsedMinutes: prediction.elapsedMinutes
+  });
   res.json(prediction);
 }));
 
@@ -596,6 +635,7 @@ app.get("/api/evidence", asyncRoute(async (_req, res) => {
 app.post("/api/evidence/:incidentId", asyncRoute(async (req, res) => {
   const evidence = await createEvidencePackage(prisma, routeParam(req.params.incidentId));
   io.emit("evidence.created", evidence);
+  await notifyDbUpdate("Создан evidence package", { evidence: evidence.publicId, incidentId: evidence.incidentId, status: evidence.status });
   res.json(evidence);
 }));
 
@@ -646,6 +686,8 @@ app.post("/api/patrols", asyncRoute(async (req, res) => {
     }
   });
   io.emit("patrol:created", patrol);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("Создан патруль", { patrol: patrol.publicId, area: patrol.area, missionType: patrol.missionType, status: patrol.status });
   res.json(patrol);
 }));
 
@@ -718,12 +760,16 @@ app.post("/api/search-missions", asyncRoute(async (req, res) => {
     ]
   });
   io.emit("search:created", mission);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("Создана поисковая миссия", { mission: mission.publicId, radius: `${mission.radius} м`, description: mission.description });
   res.json(mission);
 }));
 
 app.post("/api/search-missions/:id/candidates", asyncRoute(async (req, res) => {
   const input = z.object({ status: z.nativeEnum(CandidateStatus) }).parse(req.body);
   const candidate = await prisma.searchCandidate.update({ where: { id: routeParam(req.params.id) }, data: { status: input.status } });
+  io.emit("dashboard:update");
+  await notifyDbUpdate("Обновлён кандидат поиска", { candidate: candidate.id, status: candidate.status, confidence: `${candidate.confidence}%` });
   res.json(candidate);
 }));
 
@@ -745,6 +791,7 @@ app.post("/api/offline/events", asyncRoute(async (req, res) => {
     create: { idempotencyKey: input.idempotencyKey, type: input.type, payload }
   });
   io.emit("offline.started", event);
+  await notifyDbUpdate("Создан offline sync event", { event: event.id, type: event.type, status: event.status });
   res.json(event);
 }));
 
@@ -753,6 +800,8 @@ app.post("/api/offline/sync", asyncRoute(async (_req, res) => {
   io.emit("offline.syncing");
   const result = await prisma.offlineSyncEvent.updateMany({ where: { status: "SYNCING" }, data: { status: "SYNCED", syncedAt: new Date() } });
   io.emit("offline.synced", result);
+  io.emit("dashboard:update");
+  await notifyDbUpdate("Синхронизированы offline events", { synced: result.count });
   res.json({ ok: true, synced: result.count });
 }));
 
