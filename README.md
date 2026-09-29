@@ -11,18 +11,18 @@ This is an operational web application, not a landing page.
 - Database: PostgreSQL on Neon, Prisma ORM
 - Maps: Leaflet with OpenStreetMap tiles
 
-Real:
+## Data Model
 
-- PostgreSQL database on Neon
-- Prisma schema, migrations, and seed data
-- REST API
-- Socket.IO realtime events
-- Incident creation and status transitions
-- Search mission creation
-- Patrol creation
-- Rescue assignment transitions
-- Analytics from stored database rows
-- Russian command-center UI
+PostgreSQL is the source of truth for the application. Dashboards and pages read operational entities from the REST API backed by Prisma:
+
+- drones, drone connections, telemetry
+- incidents, incident events, rescue assignments
+- rescuers and patrols
+- search missions, sightings, candidates, drift predictions
+- recordings, playback events, evidence packages
+- users and controller-managed operational records
+
+The frontend refreshes PostgreSQL-backed overview data periodically, so API-created records appear in the command center and pages even when WebSocket delivery is unavailable.
 
 ## Neon setup used
 
@@ -72,13 +72,7 @@ Apply migrations:
 set -a; source .env.local; set +a; DATABASE_URL="$DATABASE_URL_UNPOOLED" npx prisma migrate deploy
 ```
 
-Seed/reset demo data:
-
-```bash
-set -a; source .env.local; set +a; npm run demo:reset
-```
-
-If you are pointing at a shared/production Neon branch and do not want to wipe existing rows, use:
+Seed/update required system accounts without wiping existing rows:
 
 ```bash
 set -a; source .env.local; set +a; npm run db:seed
@@ -105,12 +99,11 @@ API runs at:
 
 - Connection gateway - shown before the command center when no active `DroneConnection` exists
 - `/overview` - main command center with KPIs, Leaflet map, zones, drones, rescuers, search areas, drift areas, last-seen points, sea summary, timeline
-- `/live` - drone live operations with mocked stream, deterministic AI alert, confirm/false alarm actions, full scenario trigger
-- `/incidents` - incident table, detail panel, timeline, confirm/dispatch/evidence/resolve/false-alarm actions
+- `/live` - live operations view using the latest database recording, detections, telemetry, and active incidents
+- `/incidents` - incident table, database-backed creation form, detail panel, timeline, confirm/dispatch/evidence/resolve/false-alarm actions
 - `/search` - search mission form with map point selection, radius, last-seen time, tags, visual reference field, candidates, last-seen network, drift
-- `/playback` - prerecorded recording metadata, timeline events, synchronized map, AI overlay marker, change detection
+- `/playback` - recording metadata, timeline events, synchronized map, overlay marker, change detection
 - `/evidence` - evidence package list and printable official report view with QR payload
-- `/sea` - simulated Sea Intelligence, operational indicators, map, forecast timeline, offline queue demo controls
 - `/patrols` - patrol creation and patrol status cards
 - `/analytics` - Recharts dashboard from database data
 - `/drones` - fleet page and telemetry chart
@@ -146,4 +139,24 @@ Prisma models:
 - `OfflineSyncEvent`
 
 Migrations are in `prisma/migrations`.
-in the dependency tree. I did not run `npm audit fix --force` because it may introduce breaking dependency changes during the MVP build.
+
+## Login Accounts
+
+Seeded accounts:
+
+- `nadzor@boltzzmann.kz` / `nadzor2026`
+- `controller@boltzzmann.kz` / `controller2026`
+
+The controller role can create and manage users, drones, rescuers, locations, fleet records, recordings, and operational data.
+
+## Verification performed
+
+- Prisma migration `20260924054156_qutqar_phase2_ops` was created and applied to Neon branch `production`.
+- Prisma Client generation completed.
+- Non-destructive `npm run db:seed` completed against Neon.
+- `npm run build` passed for API and web.
+- API health returned `database: connected`.
+- `/api/overview`, `/api/playback`, and `/api/evidence` returned PostgreSQL-backed data.
+- Browser smoke test rendered `/overview`, `/live`, `/incidents`, `/search`, `/playback`, `/evidence`, and `/rescue` from `http://localhost:5174` with no client console errors.
+
+Note: `npm install` reported three high-severity audit findings in the dependency tree. I did not run `npm audit fix --force` because it may introduce breaking dependency changes during the MVP build.

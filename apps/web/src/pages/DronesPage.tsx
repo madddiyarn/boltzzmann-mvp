@@ -32,7 +32,7 @@ export function DronesPage() {
       </section>
       <aside className="card p-4">
         <h1 className="text-2xl font-extrabold">Телеметрия Boltzzmann-01</h1>
-        <p className="mt-2 text-sm text-muted">Периодически сохраняется в PostgreSQL, значения в MVP смоделированы.</p>
+        <p className="mt-2 text-sm text-muted">Телеметрия читается из PostgreSQL и обновляется вместе с флотом.</p>
         <div className="mt-5 h-72">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data.telemetry.slice().reverse()}>

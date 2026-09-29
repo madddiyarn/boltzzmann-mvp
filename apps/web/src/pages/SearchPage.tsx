@@ -1,4 +1,4 @@
-import { Camera, CheckCircle2, MapPin, Plus, Radar, Search, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, MapPin, Plus, Search, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Circle, Marker, Polyline, MapContainer, Popup, TileLayer, useMapEvents } from "react-leaflet";
 import { api } from "../services/api";
@@ -21,7 +21,7 @@ export function SearchPage() {
   const [tags, setTags] = useState(["Красная куртка", "Черный рюкзак"]);
   const [description, setDescription] = useState("Мужчина, последний раз замечен возле скал.");
   const [approximateTime, setApproximateTime] = useState(new Date().toISOString().slice(0, 16));
-  const [visualReferenceUrl, setVisualReferenceUrl] = useState("/demo/reference-red-jacket.jpg");
+  const [visualReferenceUrl, setVisualReferenceUrl] = useState("");
   const [message, setMessage] = useState<string | null>(null);
 
   async function submit() {
@@ -52,9 +52,9 @@ export function SearchPage() {
         <input className="mono mt-2 w-full rounded-2xl border border-line px-3 py-2" type="datetime-local" value={approximateTime} onChange={(event) => setApproximateTime(event.target.value)} />
         <label className="mt-4 block text-sm font-bold">Визуальный ориентир</label>
         <div className="mt-2 rounded-2xl border border-dashed border-line p-3">
-          <div className="flex items-center gap-2 text-sm font-bold"><Camera size={16} /> Optional upload / demo reference</div>
+          <div className="flex items-center gap-2 text-sm font-bold"><Camera size={16} /> Optional upload / reference URL</div>
           <input className="mt-2 w-full rounded-full border border-line px-3 py-2 text-sm" value={visualReferenceUrl} onChange={(event) => setVisualReferenceUrl(event.target.value)} />
-          <p className="mt-2 text-xs text-muted">Facial recognition не используется. Similarity в MVP идет через MockAIProvider.</p>
+          <p className="mt-2 text-xs text-muted">Facial recognition не используется. Ссылка сохраняется в PostgreSQL как ориентир для операторов.</p>
         </div>
         <label className="mt-4 block text-sm font-bold">Отличительные предметы</label>
         <div className="mt-2 flex gap-2">
@@ -93,7 +93,6 @@ export function SearchPage() {
               <div className="mt-3 text-sm text-muted">Проверено: {mission.areaChecked}% · кандидатов: {mission.candidates.length}</div>
               <div className="mt-3 h-2 rounded-full bg-[#f1f3f5]"><div className="h-2 rounded-full bg-[#0f87a8]" style={{ width: `${mission.areaChecked}%` }} /></div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button className="btn px-3 py-1 text-xs" onClick={async () => { await api.generateCandidate(mission.id); await refresh(); }}><Radar size={14} /> Симулировать скан</button>
                 <button className="btn px-3 py-1 text-xs" onClick={async () => { await api.createDrift({ searchMissionId: mission.id, latitude: mission.centerLatitude, longitude: mission.centerLongitude, elapsedMinutes: 20 }); await refresh(); }}>Drift</button>
               </div>
               <div className="mt-4 space-y-2">

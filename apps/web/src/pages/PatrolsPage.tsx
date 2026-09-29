@@ -41,7 +41,7 @@ export function PatrolsPage() {
             ))}
           </div>
         </div>
-        <button className="btn btn-primary mt-5 w-full" onClick={createPatrol}><Play size={16} /> START PATROL</button>
+        <button className="btn btn-primary mt-5 w-full" onClick={createPatrol}><Play size={16} /> Создать патруль в БД</button>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">

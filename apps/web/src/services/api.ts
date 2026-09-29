@@ -1,4 +1,4 @@
-import type { AdminSnapshot, Drone, DroneConnection, Evidence, Overview, Recording, Rescuer, RescueAssignment, User, UserRole } from "../types/domain";
+import type { AdminSnapshot, Drone, DroneConnection, Evidence, Incident, IncidentStatus, IncidentType, Overview, Recording, Rescuer, RescueAssignment, Severity, User, UserRole } from "../types/domain";
 
 const baseUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -32,12 +32,16 @@ export const api = {
   drones: () => request<unknown>("/api/drones"),
   connectDrone: (body: { serialNumber: string; name?: string; station?: string }) =>
     request("/api/drones/connect", { method: "POST", body: JSON.stringify(body) }),
-  demoStart: () => request<{ status: string; detectionId?: string }>("/api/demo/start", { method: "POST" }),
-  demoConfirm: (detectionId?: string) => request("/api/demo/confirm", { method: "POST", body: JSON.stringify({ detectionId }) }),
-  demoFalseAlarm: (detectionId: string) => request("/api/demo/false-alarm", { method: "POST", body: JSON.stringify({ detectionId }) }),
-  demoReset: () => request("/api/demo/reset", { method: "POST" }),
-  demoFullScenario: () => request("/api/demo/full-scenario", { method: "POST" }),
-  demoSearchScenario: () => request("/api/demo/search-scenario", { method: "POST" }),
+  createIncident: (body: {
+    type: IncidentType;
+    status?: IncidentStatus;
+    severity?: Severity;
+    confidence: number;
+    latitude: number;
+    longitude: number;
+    droneId?: string;
+    message?: string;
+  }) => request<Incident>("/api/incidents", { method: "POST", body: JSON.stringify(body) }),
   dispatch: (incidentId: string) => request(`/api/incidents/${incidentId}/dispatch`, { method: "POST" }),
   incidentStatus: (incidentId: string, status: string, message?: string) =>
     request(`/api/incidents/${incidentId}/status`, { method: "POST", body: JSON.stringify({ status, message }) }),
@@ -50,7 +54,6 @@ export const api = {
     distinctiveItems: string[];
     visualReferenceUrl?: string;
   }) => request("/api/search-missions", { method: "POST", body: JSON.stringify(body) }),
-  generateCandidate: (missionId: string) => request(`/api/search-missions/${missionId}/generate-candidate`, { method: "POST" }),
   updateCandidate: (candidateId: string, status: "NEW" | "POSSIBLE_TARGET" | "REJECTED") =>
     request(`/api/search-missions/${candidateId}/candidates`, { method: "POST", body: JSON.stringify({ status }) }),
   createDrift: (body: { incidentId?: string; searchMissionId?: string; latitude: number; longitude: number; elapsedMinutes: number }) =>

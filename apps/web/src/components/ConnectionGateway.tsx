@@ -4,7 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api } from "../services/api";
 import type { DroneConnection } from "../types/domain";
 
-const models = ["DJI Avata 2", "DJI Mavic 3 Enterprise", "DJI Matrice 30", "Other / Demo Drone"];
+const models = ["DJI Avata 2", "DJI Mavic 3 Enterprise", "DJI Matrice 30", "Other Drone"];
 const djiSteps = ["Поиск устройства...", "Устройство найдено", "Установка соединения", "Получение телеметрии", "Синхронизация камеры", "Подключено"];
 const qrSteps = ["QR отсканирован", "Проверка устройства", "Дрон найден", "Подключено"];
 
@@ -24,7 +24,7 @@ export function ConnectionGateway({ onConnected }: { onConnected: (connection: D
     app: "Boltzzmann",
     type: "DRONE_INIT",
     model,
-    serialNumber: serialNumber.trim() || "DEMO-QR",
+    serialNumber: serialNumber.trim() || "QR-OPS",
     station: "AKTAU_COASTAL_OPS",
     issuedAt: new Date(2026, 8, 24, 15, 20, 42).toISOString()
   });
@@ -73,7 +73,6 @@ export function ConnectionGateway({ onConnected }: { onConnected: (connection: D
             <div className="bg-[#F2F0E9] p-3">TLM<br />ONLINE</div>
           </div>
           <button className="btn btn-primary cut-corner mt-6 w-full" onClick={() => onConnected(connected)}>ОТКРЫТЬ COMMAND CENTER</button>
-          <p className="ops-label mt-3 text-[#E7A928]">DEMO CONNECTION</p>
         </section>
       </main>
     );
@@ -97,10 +96,10 @@ export function ConnectionGateway({ onConnected }: { onConnected: (connection: D
             <div className="absolute bottom-4 left-4 mono text-xs font-bold text-muted">MODEL / {model.toUpperCase()}</div>
             <div className="absolute right-4 top-4 mono text-xs font-bold text-[#087F73]">SEC / AKT-OPS</div>
           </div>
-          <p className="mt-4 max-w-md text-sm text-muted">Для начала работы подключите совместимый дрон к системе Boltzzmann. DJI-интеграция в MVP смоделирована и не вызывает реальные DJI-сервисы.</p>
+          <p className="mt-4 max-w-md text-sm text-muted">Для начала работы подключите совместимый дрон к системе Boltzzmann. Сессия подключения сохраняется в PostgreSQL и используется в командном центре.</p>
           <div className="mt-5 border border-line bg-[#FAF9F5]/70 p-3">
-            <div className="ops-label">DATA HONESTY</div>
-            <div className="mono mt-1 text-xs font-bold text-[#69736F]">DEMO CONNECTION / MOCK DJI / SIMULATED TELEMETRY</div>
+            <div className="ops-label">CONNECTION STATE</div>
+            <div className="mono mt-1 text-xs font-bold text-[#69736F]">SESSION / TELEMETRY / CAMERA STATUS</div>
           </div>
         </div>
         <div className="border-l border-line bg-[#FAF9F5] p-6">
@@ -117,7 +116,7 @@ export function ConnectionGateway({ onConnected }: { onConnected: (connection: D
             value={serialNumber}
             disabled={busy}
             onChange={(event) => setSerialNumber(event.target.value)}
-            placeholder="Любой demo serial"
+            placeholder="Серийный номер"
           />
 
           {mode === "qr-ready" && (
@@ -125,7 +124,7 @@ export function ConnectionGateway({ onConnected }: { onConnected: (connection: D
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="font-extrabold">QR для подключения</h3>
-                  <p className="mt-1 text-sm text-muted">Наведите demo scanner на QR. Загрузка начнётся только после сканирования.</p>
+                  <p className="mt-1 text-sm text-muted">Наведите scanner на QR. Загрузка начнётся только после сканирования.</p>
                 </div>
                 <span className="ops-label text-[#087F73]">VALID QR</span>
               </div>

@@ -87,7 +87,7 @@ export function Shell() {
               <span className="status-dot" />
               <div className="min-w-0">
                 <div className="ops-label">Boltzzmann / AKTAU COASTAL OPS</div>
-                <div className="truncate text-sm font-extrabold">Система работает <span className="mono text-xs text-muted">/ DEMO MODE</span></div>
+                <div className="truncate text-sm font-extrabold">Система работает <span className="mono text-xs text-muted">/ DATABASE LIVE</span></div>
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-x-4 gap-y-1 text-xs text-muted xl:justify-end">
@@ -112,7 +112,7 @@ export function Shell() {
             <div className="ops-panel absolute right-6 top-14 z-30 w-80 p-4 shadow-soft">
               <div className="mono text-xs text-muted">{activeConnection.serialNumber}</div>
               <h3 className="text-xl font-extrabold">{activeConnection.drone.name}</h3>
-              <p className="text-sm text-muted">{activeConnection.selectedModel} · DEMO CONNECTION</p>
+              <p className="text-sm text-muted">{activeConnection.selectedModel} · OPERATIONAL CONNECTION</p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-bold">
                 <div className="border border-line bg-[#F2F0E9] p-2">GPS<br />READY</div>
                 <div className="border border-line bg-[#F2F0E9] p-2">CAM<br />ONLINE</div>
@@ -121,7 +121,7 @@ export function Shell() {
               <button
                 className="btn mt-4 w-full"
                 onClick={async () => {
-                  if (window.confirm("Отключить активную demo-сессию дрона?")) {
+                  if (window.confirm("Отключить активную сессию дрона?")) {
                     await api.disconnectSession();
                     setConnectionState(null);
                     setSessionOverride(null);

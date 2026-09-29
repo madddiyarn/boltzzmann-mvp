@@ -49,7 +49,7 @@ export async function createDriftPrediction(
       elapsedMinutes: input.elapsedMinutes,
       areas,
       metadata: {
-        model: "deterministic-demo-drift",
+        model: "drift-estimate",
         note: "Estimated search area, not an exact scientific prediction."
       }
     }

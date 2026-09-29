@@ -1,10 +1,13 @@
-import { CheckCircle2, FileText, LifeBuoy, PlayCircle, ShieldAlert, XCircle } from "lucide-react";
+import { CheckCircle2, FileText, LifeBuoy, Plus, ShieldAlert, XCircle } from "lucide-react";
 import { useState } from "react";
 import { StatusBadge } from "../components/StatusBadge";
 import { incidentStatusLabel, incidentTypeLabel, severityLabel } from "../i18n/ru";
 import { api } from "../services/api";
 import { useOverview } from "../hooks/useOverview";
-import type { Incident } from "../types/domain";
+import type { Incident, IncidentType, Severity } from "../types/domain";
+
+const incidentTypes: IncidentType[] = ["POTENTIAL_DROWNING", "SAFE_ZONE_VIOLATION", "RESTRICTED_ZONE", "PERSON_OVERBOARD", "CHILD_RISK", "FISHERMAN_SAFETY", "SEARCH_TARGET"];
+const severities: Severity[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
 export function IncidentsPage() {
   const { data, loading, refresh } = useOverview();
@@ -12,6 +15,15 @@ export function IncidentsPage() {
   const [selected, setSelected] = useState<Incident | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    type: "POTENTIAL_DROWNING" as IncidentType,
+    severity: "HIGH" as Severity,
+    confidence: 80,
+    latitude: 43.646,
+    longitude: 51.149,
+    droneId: "",
+    message: "Инцидент создан из панели оператора"
+  });
 
   if (loading || !data) return <div className="card p-6 text-muted">Загрузка инцидентов...</div>;
   const incidents = data.incidents.filter((incident) => {
@@ -46,15 +58,18 @@ export function IncidentsPage() {
     }
   }
 
-  async function runScenario() {
+  async function createIncident() {
     setBusy(true);
     setMessage(null);
     try {
-      await api.demoFullScenario();
-      setMessage("Сценарий создан: инцидент, dispatch, evidence, print job и drift доступны.");
+      await api.createIncident({
+        ...form,
+        droneId: form.droneId || undefined
+      });
+      setMessage("Инцидент создан и сохранён в PostgreSQL.");
       await refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось запустить сценарий");
+      setMessage(error instanceof Error ? error.message : "Не удалось создать инцидент");
     } finally {
       setBusy(false);
     }
@@ -100,8 +115,7 @@ export function IncidentsPage() {
                     <div className="mx-auto max-w-md text-center">
                       <ShieldAlert className="mx-auto mb-3 text-muted" />
                       <h2 className="text-xl font-extrabold">Нет инцидентов по выбранному фильтру</h2>
-                      <p className="mt-2 text-sm text-muted">Для демо можно создать полный проверяемый сценарий с подтверждением, dispatch, печатью отчёта и доказательствами.</p>
-                      <button className="btn btn-primary mt-4" disabled={busy} onClick={runScenario}><PlayCircle size={16} /> Запустить сценарий</button>
+                      <p className="mt-2 text-sm text-muted">Инциденты появятся здесь после создания через API, контроллера или форму справа.</p>
                     </div>
                   </td>
                 </tr>
@@ -144,11 +158,50 @@ export function IncidentsPage() {
             </div>
           </>
         ) : (
-          <div className="grid min-h-[360px] place-items-center text-center text-muted">
-            <div>
-              <ShieldAlert className="mx-auto mb-3" />
-              Выберите инцидент для деталей
+          <div>
+            <div className="mono text-sm text-muted">DB / CREATE INCIDENT</div>
+            <h2 className="text-2xl font-extrabold">Новый инцидент</h2>
+            <div className="mt-4 space-y-3 text-sm">
+              <label className="block font-bold">
+                Тип
+                <select className="field mt-1 w-full" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as IncidentType })}>
+                  {incidentTypes.map((type) => <option key={type} value={type}>{incidentTypeLabel[type]}</option>)}
+                </select>
+              </label>
+              <label className="block font-bold">
+                Критичность
+                <select className="field mt-1 w-full" value={form.severity} onChange={(event) => setForm({ ...form, severity: event.target.value as Severity })}>
+                  {severities.map((severity) => <option key={severity} value={severity}>{severityLabel[severity]}</option>)}
+                </select>
+              </label>
+              <label className="block font-bold">
+                Уверенность, %
+                <input className="field mt-1 w-full" type="number" min={0} max={100} value={form.confidence} onChange={(event) => setForm({ ...form, confidence: Number(event.target.value) })} />
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block font-bold">
+                  Latitude
+                  <input className="field mt-1 w-full" type="number" value={form.latitude} onChange={(event) => setForm({ ...form, latitude: Number(event.target.value) })} />
+                </label>
+                <label className="block font-bold">
+                  Longitude
+                  <input className="field mt-1 w-full" type="number" value={form.longitude} onChange={(event) => setForm({ ...form, longitude: Number(event.target.value) })} />
+                </label>
+              </div>
+              <label className="block font-bold">
+                Дрон
+                <select className="field mt-1 w-full" value={form.droneId} onChange={(event) => setForm({ ...form, droneId: event.target.value })}>
+                  <option value="">Без привязки</option>
+                  {data.drones.map((drone) => <option key={drone.id} value={drone.id}>{drone.name}</option>)}
+                </select>
+              </label>
+              <label className="block font-bold">
+                Сообщение
+                <textarea className="field mt-1 min-h-24 w-full" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} />
+              </label>
             </div>
+            <button className="btn btn-primary mt-4 w-full" disabled={busy} onClick={createIncident}><Plus size={16} /> Создать в БД</button>
+            <p className="mt-4 text-sm text-muted">Выберите строку слева, чтобы открыть детали существующего инцидента.</p>
           </div>
         )}
       </aside>

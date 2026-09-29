@@ -87,7 +87,7 @@ export function PlaybackPage() {
           />
           <div className="absolute inset-0 bg-[linear-gradient(rgba(23,32,30,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(23,32,30,0.08)_1px,transparent_1px)] bg-[length:54px_54px]" />
           <div className="absolute left-4 top-4 border border-line bg-[#FAF9F5]/90 px-3 py-2 font-mono text-xs font-bold">
-            PRERECORDED · WINDOW {fromMinute}:00 - {Math.max(fromMinute + 1, toMinute)}:00
+            ARCHIVE · WINDOW {fromMinute}:00 - {Math.max(fromMinute + 1, toMinute)}:00
           </div>
           <div className="absolute right-4 top-4 border border-line bg-[#FAF9F5]/90 px-3 py-2 font-mono text-xs font-bold">
             {highlightVision ? "VISION / PEOPLE + SEA" : "RAW / CAMERA"}

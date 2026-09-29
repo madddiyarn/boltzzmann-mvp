@@ -1,4 +1,4 @@
-import { Activity, Crosshair, FileText, LifeBuoy, PlayCircle, Radio, Route, Waves, Wind } from "lucide-react";
+import { Activity, Crosshair, FileText, LifeBuoy, Radio, Route, Waves, Wind } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { StatusBadge } from "../components/StatusBadge";
@@ -22,8 +22,6 @@ export function OverviewPage() {
   const { data, loading, error, refresh } = useOverview();
   const [selectedType, setSelectedType] = useState("ALL");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
-  const [demoBusy, setDemoBusy] = useState(false);
-  const [panelMessage, setPanelMessage] = useState<string | null>(null);
   const [highlightVision, setHighlightVision] = useState(false);
   const activeIncidents = useMemo(() => data?.incidents.filter((incident) => !["RESOLVED", "FALSE_ALARM"].includes(incident.status)) ?? [], [data]);
 
@@ -50,24 +48,8 @@ export function OverviewPage() {
             <div className="ops-label">MAP / AKT COASTAL GRID</div>
             <h1 className="text-lg font-extrabold">Command Center</h1>
           </div>
-          <button
-            className="btn btn-primary cut-corner px-3 py-1.5 text-xs"
-            disabled={demoBusy}
-            onClick={async () => {
-              setDemoBusy(true);
-              setPanelMessage(null);
-              try {
-                await api.demoFullScenario();
-                setPanelMessage("SCENARIO COMPLETE / INC + SAR + EV + DRIFT");
-                await refresh();
-              } catch (error) {
-                setPanelMessage(error instanceof Error ? error.message : "Не удалось запустить сценарий");
-              } finally {
-                setDemoBusy(false);
-              }
-            }}
-          >
-            <PlayCircle size={15} /> Запустить сценарий
+          <button className="btn cut-corner px-3 py-1.5 text-xs" onClick={() => refresh()}>
+            Обновить БД
           </button>
         </div>
         <button
@@ -83,7 +65,6 @@ export function OverviewPage() {
           <OpsMetric label="SAR" value={data.stats.availableRescuers} icon={<LifeBuoy size={14} />} />
           <OpsMetric label="PTL" value={data.stats.patrolsToday} icon={<Route size={14} />} />
         </div>
-        {panelMessage && <p className="mono mt-2 text-[11px] font-bold text-[#087F73]">{panelMessage}</p>}
         <div className="mt-3 flex flex-wrap gap-1.5">
           {filters.map(([value, label]) => (
             <button key={value} className={`btn px-2.5 py-1 text-[11px] ${selectedType === value ? "btn-primary" : ""}`} onClick={() => setSelectedType(value)}>
@@ -139,9 +120,9 @@ export function OverviewPage() {
       <div className="map-overlay bottom-3 left-3 right-3 p-0">
         <div className="telemetry-strip">
           <Telemetry label="DRN" value="B-01" detail="COASTAL PATROL" />
-          <Telemetry label="ALT" value={`${data.drones[0]?.altitude ?? 0}M`} detail="BARO SIM" />
+          <Telemetry label="ALT" value={`${data.drones[0]?.altitude ?? 0}M`} detail="DB TELEMETRY" />
           <Telemetry label="BAT" value={`${data.drones[0]?.battery ?? 0}%`} detail="LINK READY" />
-          <Telemetry label="SEA" value={`${data.sea.waveHeight.toFixed(1)}M`} detail="SIM MARINE" icon={<Waves size={14} />} />
+          <Telemetry label="SEA" value={`${data.sea.waveHeight.toFixed(1)}M`} detail="MARINE DATA" icon={<Waves size={14} />} />
           <Telemetry label="WIND" value={`${data.sea.windSpeed.toFixed(1)}M/S`} detail={`${data.sea.windDirection} DEG`} icon={<Wind size={14} />} />
           <Telemetry label="OPS" value={data.sea.rescueCondition} detail="RESCUE CONDITIONS" />
         </div>

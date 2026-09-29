@@ -21,7 +21,7 @@ export function EvidencePage() {
     <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
       <section className="card p-4">
         <h1 className="text-2xl font-extrabold">Доказательства</h1>
-        <p className="mt-2 text-sm text-muted">Evidence packages формируются из реальных событий БД, mock assets помечены в metadata.</p>
+        <p className="mt-2 text-sm text-muted">Evidence packages формируются из событий и вложений, сохранённых в PostgreSQL.</p>
         <div className="mt-4 space-y-2">
           {items.map((item) => (
             <button key={item.id} className={`w-full rounded-2xl border p-3 text-left ${selected?.id === item.id ? "border-[#0f87a8] bg-[#e7f6fa]" : "border-line bg-white"}`} onClick={() => setSelectedId(item.id)}>

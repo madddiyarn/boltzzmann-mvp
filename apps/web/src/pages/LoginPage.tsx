@@ -42,7 +42,7 @@ export function LoginPage() {
             Надзор получает доступ к оперативной картине. Контроллер получает полный доступ к созданию, редактированию и удалению данных.
           </p>
           <div className="mt-6 border border-line bg-[#FAF9F5]/75 p-4">
-            <div className="ops-label">DEMO AUTH</div>
+            <div className="ops-label">ACCESS CONTROL</div>
             <p className="mt-1 text-sm text-muted">Пароли сохранены как SHA-256 hash в PostgreSQL. Для production нужен полноценный IdP/MFA.</p>
           </div>
         </div>

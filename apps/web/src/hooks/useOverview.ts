@@ -48,11 +48,13 @@ export function useOverview() {
       "weather.updated",
       "marine.updated",
       "offline.synced",
-      "demo:reset"
+      "patrol:created"
     ];
     events.forEach((event) => socket.on(event, handler));
+    const interval = window.setInterval(handler, 5000);
     return () => {
       events.forEach((event) => socket.off(event, handler));
+      window.clearInterval(interval);
     };
   }, [refresh]);
 

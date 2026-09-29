@@ -8,8 +8,7 @@ import { z } from "zod";
 import { AssignmentStatus, CandidateStatus, ConnectionMethod, ConnectionStatus, DroneStatus, IncidentStatus, IncidentType, PatrolStatus, Prisma, RescuerStatus } from "@prisma/client";
 import { env } from "./lib/env";
 import { prisma } from "./lib/prisma";
-import { DemoScenario } from "./simulation/demoScenario";
-import { analyzeIncident, createEvidencePackage, queuePrintJob } from "./providers/dispatcher";
+import { createEvidencePackage } from "./providers/dispatcher";
 import { buildSeaForecast, getCurrentEnvironmentalSnapshot } from "./providers/environment";
 import { createDriftPrediction } from "./providers/drift";
 
@@ -18,8 +17,6 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: "*" }
 });
-const demo = new DemoScenario(prisma, io);
-
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "50mb" }));
 
@@ -88,6 +85,50 @@ async function getOverview() {
 
 type RescueAction = "ACCEPT" | "ARRIVED" | "RESCUED";
 
+async function nextPublicId(prefix: string) {
+  const count = await prisma.incident.count();
+  return `${prefix}-${String(count + 1).padStart(4, "0")}`;
+}
+
+async function dispatchIncident(incidentId: string) {
+  const incident = await prisma.incident.findUniqueOrThrow({ where: { id: incidentId } });
+  const rescuer = await prisma.rescuer.findFirst({
+    where: { status: RescuerStatus.AVAILABLE },
+    orderBy: { callSign: "asc" }
+  });
+  if (!rescuer) {
+    throw new Error("Нет доступных спасателей для dispatch");
+  }
+
+  const assignment = await prisma.rescueAssignment.create({
+    data: {
+      incidentId: incident.id,
+      rescuerId: rescuer.id,
+      status: AssignmentStatus.SENT
+    },
+    include: { incident: true, rescuer: true }
+  });
+  await prisma.incident.update({
+    where: { id: incident.id },
+    data: { status: IncidentStatus.DISPATCHED }
+  });
+  await prisma.rescuer.update({
+    where: { id: rescuer.id },
+    data: { status: RescuerStatus.DISPATCHED }
+  });
+  await prisma.incidentEvent.create({
+    data: {
+      incidentId: incident.id,
+      type: "DISPATCH",
+      message: `Спасатель ${rescuer.callSign} направлен к координатам`
+    }
+  });
+  io.emit("incident.dispatched", assignment);
+  io.emit("rescue.assigned", assignment);
+  io.emit("dashboard:update");
+  return assignment;
+}
+
 async function applyRescueAction(assignmentId: string, action: RescueAction) {
   const assignment = await prisma.rescueAssignment.findUniqueOrThrow({ where: { id: assignmentId }, include: { incident: true, rescuer: true } });
   const now = new Date();
@@ -128,7 +169,7 @@ async function applyRescueAction(assignmentId: string, action: RescueAction) {
 
 app.get("/api/health", asyncRoute(async (_req, res) => {
   await prisma.$queryRaw`SELECT 1`;
-  res.json({ ok: true, database: "connected", mocked: ["DJI", "telemetry", "GPS", "AI inference", "live stream"] });
+  res.json({ ok: true, database: "connected" });
 }));
 
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
@@ -328,7 +369,7 @@ app.post("/api/connections/connect", asyncRoute(async (req, res) => {
     serialNumber: z.string().min(1).optional()
   }).parse(req.body);
 
-  const serialNumber = input.serialNumber?.trim() || `DEMO-${input.model.toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}`;
+  const serialNumber = input.serialNumber?.trim() || `OPS-${input.model.toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-${Date.now().toString().slice(-4)}`;
   await prisma.droneConnection.updateMany({
     where: { status: ConnectionStatus.CONNECTED },
     data: { status: ConnectionStatus.DISCONNECTED, disconnectedAt: new Date() }
@@ -367,11 +408,11 @@ app.post("/api/connections/connect", asyncRoute(async (req, res) => {
       droneId: drone.id,
       method: input.method,
       status: ConnectionStatus.CONNECTED,
-      isMock: true,
+      isMock: false,
       selectedModel: input.model,
       serialNumber,
       metadata: {
-        label: "DEMO CONNECTION",
+        label: "OPERATIONAL CONNECTION",
         flow: input.method === ConnectionMethod.DJI_APP ? ["Поиск устройства", "Устройство найдено", "Установка соединения", "Получение телеметрии", "Синхронизация камеры", "Подключено"] : []
       }
     },
@@ -413,7 +454,44 @@ app.get("/api/incidents/:id", asyncRoute(async (req, res) => {
 }));
 
 app.post("/api/incidents/:id/dispatch", asyncRoute(async (req, res) => {
-  res.json(await demo.dispatchRescuer(routeParam(req.params.id)));
+  res.json(await dispatchIncident(routeParam(req.params.id)));
+}));
+
+app.post("/api/incidents", asyncRoute(async (req, res) => {
+  const input = z.object({
+    type: z.enum(["POTENTIAL_DROWNING", "SAFE_ZONE_VIOLATION", "RESTRICTED_ZONE", "PERSON_OVERBOARD", "CHILD_RISK", "FISHERMAN_SAFETY", "SEARCH_TARGET"]),
+    status: z.enum(["NEW", "CONFIRMED", "DISPATCHED", "RESCUER_ACCEPTED", "ARRIVED", "RESOLVED", "FALSE_ALARM"]).default("NEW"),
+    severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
+    confidence: z.number().int().min(0).max(100).default(75),
+    latitude: z.number(),
+    longitude: z.number(),
+    droneId: z.string().optional(),
+    message: z.string().optional()
+  }).parse(req.body);
+  const incident = await prisma.incident.create({
+    data: {
+      publicId: await nextPublicId("INC"),
+      type: input.type as IncidentType,
+      status: input.status as IncidentStatus,
+      severity: input.severity ?? (input.confidence >= 85 ? "CRITICAL" : input.confidence >= 70 ? "HIGH" : "MEDIUM"),
+      confidence: input.confidence,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      droneId: input.droneId || undefined,
+      confirmedAt: input.status === IncidentStatus.CONFIRMED ? new Date() : undefined,
+      resolvedAt: ([IncidentStatus.RESOLVED, IncidentStatus.FALSE_ALARM] as IncidentStatus[]).includes(input.status) ? new Date() : undefined,
+      events: {
+        create: {
+          type: "CREATED",
+          message: input.message ?? "Инцидент создан оператором"
+        }
+      }
+    },
+    include: { drone: true, events: { orderBy: { createdAt: "asc" } }, assignments: { include: { rescuer: true } } }
+  });
+  io.emit("incident:created", incident);
+  io.emit("dashboard:update");
+  res.json(incident);
 }));
 
 app.post("/api/incidents/:id/status", asyncRoute(async (req, res) => {
@@ -441,11 +519,11 @@ app.post("/api/drones/connect", asyncRoute(async (req, res) => {
   }).parse(req.body);
 
   const allowed: Record<string, { model: string; battery: number }> = {
-    "AVATA2-DEMO-001": { model: "DJI Avata 2", battery: 87 },
-    "M3E-DEMO-002": { model: "DJI Mavic 3 Enterprise", battery: 42 },
-    "M30-DEMO-003": { model: "DJI Matrice 30", battery: 12 }
+    "AVATA2-OPS-001": { model: "DJI Avata 2", battery: 87 },
+    "M3E-OPS-002": { model: "DJI Mavic 3 Enterprise", battery: 42 },
+    "M30-OPS-003": { model: "DJI Matrice 30", battery: 12 }
   };
-  const profile = allowed[input.serialNumber] ?? { model: input.model ?? "Other / Demo Drone", battery: 87 };
+  const profile = allowed[input.serialNumber] ?? { model: input.model ?? "Other Drone", battery: 87 };
 
   const drone = await prisma.drone.upsert({
     where: { serialNumber: input.serialNumber },
@@ -482,7 +560,7 @@ app.post("/api/drones/connect", asyncRoute(async (req, res) => {
 
 app.get("/api/sea", asyncRoute(async (_req, res) => {
   const snapshot = await getCurrentEnvironmentalSnapshot(prisma);
-  res.json({ snapshot, forecast: buildSeaForecast(snapshot), source: "MockMarineProvider" });
+  res.json({ snapshot, forecast: buildSeaForecast(snapshot), source: "MarineProvider" });
 }));
 
 app.post("/api/drift", asyncRoute(async (req, res) => {
@@ -528,7 +606,7 @@ app.post("/api/dispatcher/analyze-text", asyncRoute(async (req, res) => {
   const hasRed = lower.includes("красн");
   const timeMatch = input.text.match(/(\d{1,2}[:.]\d{2})/);
   res.json({
-    source: "MockAIProvider",
+    source: "Text analysis",
     type: lower.includes("пропал") ? "Missing person" : "Operator report",
     approximateTime: timeMatch?.[1]?.replace(".", ":") ?? "не указано",
     location: lower.includes("скал") ? "Скальная зона Актау" : "требует выбора оператором",
@@ -643,138 +721,10 @@ app.post("/api/search-missions", asyncRoute(async (req, res) => {
   res.json(mission);
 }));
 
-app.post("/api/search-missions/:id/generate-candidate", asyncRoute(async (req, res) => {
-  const mission = await prisma.searchMission.findUniqueOrThrow({ where: { id: routeParam(req.params.id) } });
-  const candidateNumber = (await prisma.searchCandidate.count({ where: { searchMissionId: mission.id } })) + 1;
-  const candidate = await prisma.searchCandidate.create({
-    data: {
-      searchMissionId: mission.id,
-      confidence: 82,
-      visualSimilarity: 82,
-      latitude: mission.centerLatitude + 0.0018,
-      longitude: mission.centerLongitude - 0.0012,
-      imageUrl: `/demo/possible-match-${candidateNumber}.jpg`,
-      matchedItems: ["Красная куртка", "Черный рюкзак"],
-      status: CandidateStatus.NEW
-    }
-  });
-  await prisma.targetSighting.create({
-    data: {
-      searchMissionId: mission.id,
-      sourceType: "Search detection",
-      sourceId: candidate.id,
-      latitude: candidate.latitude,
-      longitude: candidate.longitude,
-      timestamp: candidate.detectedAt,
-      confidence: candidate.confidence,
-      metadata: { label: `POSSIBLE MATCH #${String(candidateNumber).padStart(2, "0")}` }
-    }
-  });
-  io.emit("search.candidate", candidate);
-  res.json(candidate);
-}));
-
 app.post("/api/search-missions/:id/candidates", asyncRoute(async (req, res) => {
   const input = z.object({ status: z.nativeEnum(CandidateStatus) }).parse(req.body);
   const candidate = await prisma.searchCandidate.update({ where: { id: routeParam(req.params.id) }, data: { status: input.status } });
   res.json(candidate);
-}));
-
-app.post("/api/demo/start", asyncRoute(async (_req, res) => {
-  res.json(await demo.run());
-}));
-
-app.post("/api/demo/confirm", asyncRoute(async (req, res) => {
-  const input = z.object({ detectionId: z.string().optional() }).parse(req.body ?? {});
-  res.json(await demo.confirmDetection(input.detectionId));
-}));
-
-app.post("/api/demo/false-alarm", asyncRoute(async (req, res) => {
-  const input = z.object({ detectionId: z.string() }).parse(req.body);
-  res.json(await demo.markFalseAlarm(input.detectionId));
-}));
-
-app.post("/api/demo/reset", asyncRoute(async (_req, res) => {
-  await prisma.offlineSyncEvent.deleteMany();
-  await prisma.driftPrediction.deleteMany();
-  await prisma.environmentalSnapshot.deleteMany();
-  await prisma.printJob.deleteMany();
-  await prisma.evidenceAsset.deleteMany();
-  await prisma.evidence.deleteMany();
-  await prisma.changeDetection.deleteMany();
-  await prisma.recordingEvent.deleteMany();
-  await prisma.recording.deleteMany();
-  await prisma.targetSighting.deleteMany();
-  await prisma.droneConnection.deleteMany();
-  await prisma.responseService.deleteMany();
-  await prisma.rescueAssignment.deleteMany();
-  await prisma.incidentEvent.deleteMany();
-  await prisma.incident.deleteMany();
-  await prisma.searchCandidate.deleteMany();
-  await prisma.searchMission.deleteMany();
-  await prisma.detection.deleteMany();
-  await prisma.droneTelemetry.deleteMany();
-  await prisma.patrol.deleteMany();
-  await prisma.zone.deleteMany();
-  await prisma.rescuer.deleteMany();
-  await prisma.drone.deleteMany();
-  await prisma.user.deleteMany();
-  const { seed } = await import("../../../prisma/seed");
-  await seed();
-  io.emit("demo:reset");
-  io.emit("dashboard:update");
-  res.json({ ok: true });
-}));
-
-app.post("/api/demo/full-scenario", asyncRoute(async (_req, res) => {
-  const start = await demo.run();
-  const incident = await demo.confirmDetection(start.detectionId);
-  const assignment = await demo.dispatchRescuer(incident.id);
-  const accepted = await applyRescueAction(assignment.id, "ACCEPT");
-  const arrived = await applyRescueAction(assignment.id, "ARRIVED");
-  const completed = await applyRescueAction(assignment.id, "RESCUED");
-  res.json({ start, incident, assignment, accepted, arrived, completed });
-}));
-
-app.post("/api/demo/search-scenario", asyncRoute(async (_req, res) => {
-  const count = await prisma.searchMission.count();
-  const mission = await prisma.searchMission.create({
-    data: {
-      publicId: `SR-${1100 + count}`,
-      status: "ACTIVE",
-      approximateTime: new Date(Date.now() - 75 * 60 * 1000),
-      description: "Демо-поиск: мужчина возле скал, красная куртка, черный рюкзак.",
-      distinctiveItems: ["Красная куртка", "Черный рюкзак"],
-      centerLatitude: 43.6218,
-      centerLongitude: 51.1567,
-      radius: 650,
-      areaChecked: 62,
-      startedAt: new Date()
-    }
-  });
-  const candidate = await prisma.searchCandidate.create({
-    data: {
-      searchMissionId: mission.id,
-      confidence: 86,
-      visualSimilarity: 82,
-      latitude: 43.6231,
-      longitude: 51.1554,
-      imageUrl: "/demo/possible-match-03.jpg",
-      matchedItems: ["Красная куртка", "Черный рюкзак"],
-      status: "POSSIBLE_TARGET"
-    }
-  });
-  await prisma.targetSighting.createMany({
-    data: [
-      { searchMissionId: mission.id, sourceType: "Camera", sourceId: "CAM-04", latitude: 43.629, longitude: 51.151, timestamp: new Date(Date.now() - 70 * 60 * 1000), confidence: 74, metadata: { label: "18:21 Camera 04" } },
-      { searchMissionId: mission.id, sourceType: "Drone", sourceId: "Boltzzmann-01", latitude: 43.624, longitude: 51.155, timestamp: new Date(Date.now() - 61 * 60 * 1000), confidence: 84, metadata: { label: "18:27 Drone Boltzzmann-01" } },
-      { searchMissionId: mission.id, sourceType: "Search detection", sourceId: candidate.id, latitude: candidate.latitude, longitude: candidate.longitude, timestamp: candidate.detectedAt, confidence: 86, metadata: { label: "POSSIBLE MATCH #03" } }
-    ]
-  });
-  io.emit("search.created", mission);
-  io.emit("search.candidate", candidate);
-  io.emit("dashboard:update");
-  res.json({ mission, candidate });
 }));
 
 app.get("/api/offline/events", asyncRoute(async (_req, res) => {

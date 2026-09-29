@@ -31,7 +31,7 @@ export function AnalyticsPage() {
         <StatCard label="Детекции" value={data.totals.detections} detail="AI alerts" icon={Radio} tone="amber" />
         <StatCard label="Подтверждено" value={data.totals.confirmedIncidents} detail="оператором" icon={Crosshair} tone="red" />
         <StatCard label="Закрыто" value={data.totals.resolvedIncidents} detail="инцидентов" icon={CheckCircle2} tone="green" />
-        <StatCard label="Средний ответ" value={`${data.totals.averageResponseMin} м`} detail="demo estimate" icon={Activity} />
+        <StatCard label="Средний ответ" value={`${data.totals.averageResponseMin} м`} detail="по данным БД" icon={Activity} />
       </div>
       <div className="grid gap-5 xl:grid-cols-2">
         <section className="card p-4">

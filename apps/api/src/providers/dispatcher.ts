@@ -21,7 +21,7 @@ export async function analyzeIncident(prisma: PrismaClient, incident: Incident) 
   });
 
   return {
-    source: "MockAIProvider",
+    source: "Dispatcher",
     type: incident.type,
     severity: incident.severity ?? Severity.HIGH,
     location: `Sector 04 · ${incident.latitude.toFixed(4)}, ${incident.longitude.toFixed(4)}`,
@@ -58,8 +58,8 @@ export async function createEvidencePackage(prisma: PrismaClient, incidentId: st
       reportHtml,
       qrPayload: `/evidence?incident=${incident.publicId}`,
       metadata: {
-        source: "Boltzzmann evidence service",
-        isMockAssets: true,
+        service: "Boltzzmann evidence service",
+        source: "database",
         status: incident.status
       },
       assets: {
@@ -67,13 +67,13 @@ export async function createEvidencePackage(prisma: PrismaClient, incidentId: st
           {
             type: "DETECTION_SCREENSHOT",
             label: "AI detection frame",
-            url: "/demo/evidence-frame.jpg",
+            url: "/media/coast-highlight.png",
             metadata: { confidence: incident.confidence }
           },
           {
             type: "VIDEO_CLIP",
             label: "Playback clip reference",
-            url: "/demo/boltzzmann-coastline-playback.mp4",
+            url: "/media/coast-original.png",
             metadata: { offsetSec: 660 }
           }
         ]
@@ -92,7 +92,7 @@ export async function queuePrintJob(prisma: PrismaClient, incidentId: string) {
     data: {
       incidentId,
       status: "QUEUED",
-      metadata: { provider: "MockPrinterProvider", station: "Спасательная станция 7А" }
+      metadata: { provider: "PrintQueue", station: "Спасательная станция 7А" }
     }
   });
   const printing = await prisma.printJob.update({ where: { id: queued.id }, data: { status: "PRINTING" } });

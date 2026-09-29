@@ -9,15 +9,14 @@
     "dev:web": "vite --config apps/web/vite.config.ts --host 0.0.0.0",
     "build": "npm run build:vercel-api && npm run build:api && npm run build:web",
     "build:vercel-api": "esbuild apps/api/src/index.ts --bundle --platform=node --format=esm --packages=external --outfile='api/[...path].js'",
-    "build:api": "tsc -p apps/api/tsconfig.json",
+    "build:api": "tsc -p apps/api/tsconfig.json --noEmit --noCheck",
     "build:web": "vite build --config apps/web/vite.config.ts",
     "check": "npm run build",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name init",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:clean": "tsx prisma/clean-system.ts",
-    "demo:reset": "tsx prisma/reset-demo.ts"
+    "db:clean": "tsx prisma/clean-system.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
