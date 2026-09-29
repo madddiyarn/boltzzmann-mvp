@@ -29,6 +29,9 @@ export function PlaybackPage() {
   const visibleEvents = selected?.events.filter((event) => event.offsetSec >= fromSec && event.offsetSec <= toSec) ?? [];
   const activeEvent = (visibleEvents.length ? visibleEvents : selected?.events)?.reduce((best, event) => Math.abs(event.offsetSec - offset) < Math.abs(best.offsetSec - offset) ? event : best, (visibleEvents[0] ?? selected?.events[0]));
   const route = selected?.events.filter((event) => event.latitude && event.longitude).map((event) => [event.latitude!, event.longitude!] as [number, number]) ?? [];
+  const videoUrl = selected?.videoUrl ?? "";
+  const isVideoRecording = /\.(mov|mp4|m4v|webm)(\?|$)/i.test(videoUrl) || videoUrl.startsWith("data:video/");
+  const visualFrame = highlightVision ? "/media/coast-highlight.png" : (videoUrl || "/media/coast-original.png");
 
   if (!selected) return <div className="card p-6 text-muted">Архив записей пока пуст.</div>;
 
@@ -80,11 +83,22 @@ export function PlaybackPage() {
           </select>
         </div>
         <div className="relative mt-4 min-h-[520px] overflow-hidden rounded-[6px] border border-line bg-[#dfeaf0]">
-          <img
-            src={highlightVision ? "/media/coast-highlight.png" : "/media/coast-original.png"}
-            alt="Coastal playback frame"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
+          {isVideoRecording && !highlightVision ? (
+            <video
+              key={selected.id}
+              src={videoUrl}
+              className="absolute inset-0 h-full w-full object-cover"
+              controls
+              playsInline
+              preload="metadata"
+            />
+          ) : (
+            <img
+              src={visualFrame}
+              alt="Coastal playback frame"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
           <div className="absolute inset-0 bg-[linear-gradient(rgba(23,32,30,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(23,32,30,0.08)_1px,transparent_1px)] bg-[length:54px_54px]" />
           <div className="absolute left-4 top-4 border border-line bg-[#FAF9F5]/90 px-3 py-2 font-mono text-xs font-bold">
             ARCHIVE · WINDOW {fromMinute}:00 - {Math.max(fromMinute + 1, toMinute)}:00
